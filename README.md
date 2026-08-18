@@ -192,8 +192,11 @@ src/
 ├── Qラーニング/
 │   ├── learner.py
 │   ├── map.txt
+│   ├── q_table.png
 │   ├── requirements.txt
-│   └── Qラーニング.exe
+│   ├── Qラーニング.exe
+│   ├── route.png
+│   └── visitation_heatmap.png
 └── 迷路ゲーム/
     ├── maze.py
     ├── map.txt
