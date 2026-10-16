@@ -66,6 +66,7 @@ TILE_SIZE = 200
 
 ACTIONS = ((-1, 0), (0, 1), (1, 0), (0, -1))
 ACTION_NAMES = ("up", "right", "down", "left")
+QTable = dict[tuple[int, int, int], list[float]]
 TILE_IMAGES = {
     "#": "wall.png",
     ".": "none.png",
@@ -139,18 +140,19 @@ def train(
     start: tuple[int, int],
     progress_callback=None,
     stop_event: threading.Event | None = None,
-) -> tuple[dict[tuple[int, int], list[float]], dict[tuple[int, int], int]]:
+) -> tuple[QTable, dict[tuple[int, int], int]]:
 
-    """ Learn a Q-table and count how often each maze cell is visited. """
+    """ Learn values for (row, column, energy), counting visits by position. """
 
     q_table = {
-        (r, c): [0.0] * len(ACTIONS)
+        (r, c, energy): [0.0] * len(ACTIONS)
         for r, row in enumerate(maze)
         for c, tile in enumerate(row)
         if tile != "#"
+        for energy in range(1, START_ENERGY + 1)
     }
 
-    visits = {state: 0 for state in q_table}
+    visits = {(r, c): 0 for r, c, _energy in q_table}
     rng = random.Random(RANDOM_SEED)
     epsilon = EPSILON_START
     show_interval = max(1, SHOW_EVERY_EPISODES)
@@ -161,40 +163,42 @@ def train(
             raise TrainingStopped(episode, TRAINING_EPISODES)
         state, energy = start, START_ENERGY
         visits[state] += 1
-        show_episode = SHOW_TRAINING_ON_MAZE and (
-            (episode + 1) % show_interval == 0
-            or episode == TRAINING_EPISODES - 1
-        )
-        if show_episode:
-            reset_live_maze()
-
         for _ in range(MAX_STEPS_PER_EPISODE):
             if stop_event and stop_event.is_set():
                 raise TrainingStopped(episode + 1, TRAINING_EPISODES)
 
-            # A displayed episode demonstrates the best policy learned so far.
-            action = best_action(q_table[state], rng) if show_episode else choose_action(
-                q_table[state], epsilon, rng
-            )
-            next_state, energy, reward, done = move(maze, state, action, energy)
-
-            if show_episode:
-                move_live_maze(ACTION_NAMES[action])
-                time.sleep(MOVE_DELAY)
+            key = (*state, energy)
+            action = choose_action(q_table[key], epsilon, rng)
+            next_state, next_energy, reward, done = move(maze, state, action, energy)
 
             # The Q-learning update: new knowledge moves the old value toward
             # the immediate reward plus the best value of the next state.
-            future = 0.0 if done else max(q_table[next_state])
-            old_value = q_table[state][action]
-            q_table[state][action] += LEARNING_RATE * (
+            # Terminal transitions never look up zero or negative energy states.
+            future = 0.0 if done else max(q_table[(*next_state, next_energy)])
+            old_value = q_table[key][action]
+            q_table[key][action] += LEARNING_RATE * (
                 reward + DISCOUNT_FACTOR * future - old_value
             )
-            state = next_state
+            state, energy = next_state, next_energy
             visits[state] += 1
             if done:
                 break
 
         epsilon = max(EPSILON_END, epsilon * EPSILON_DECAY)
+        show_episode = SHOW_TRAINING_ON_MAZE and (
+            (episode + 1) % show_interval == 0
+            or episode == TRAINING_EPISODES - 1
+        )
+        if show_episode:
+            # Evaluation has its own RNG and never updates Q-values or visits.
+            _route, actions, _result = follow_policy(maze, start, q_table)
+            reset_live_maze()
+            for action in actions:
+                if stop_event and stop_event.is_set():
+                    raise TrainingStopped(episode + 1, TRAINING_EPISODES)
+                move_live_maze(action)
+                time.sleep(MOVE_DELAY)
+
         report_every = max(1, TRAINING_EPISODES // 100)
         should_report = episode == 0 or (episode + 1) % report_every == 0
         if progress_callback and should_report:
@@ -229,17 +233,18 @@ def best_action(
 def follow_policy(
     maze: list[str],
     start: tuple[int, int],
-    q_table: dict[tuple[int, int], list[float]]
+    q_table: QTable
 ) -> tuple[list[tuple[int, int]], list[str], str]:
 
     """ Follow the learned policy and describe the resulting route. """
 
     state, energy = start, START_ENERGY
+    rng = random.Random(RANDOM_SEED)
     route, actions, seen = [state], [], {(state, energy)}
 
     for _ in range(MAX_STEPS_PER_EPISODE):
 
-        action = best_action(q_table[state], random.Random(RANDOM_SEED))
+        action = best_action(q_table[(*state, energy)], rng)
         state, energy, _, done = move(maze, state, action, energy)
         actions.append(ACTION_NAMES[action])
         route.append(state)
@@ -297,10 +302,14 @@ def png_map(maze: list[str]) -> Image.Image:
 
 def save_q_table(
     maze: list[str],
-    q_table: dict[tuple[int, int], list[float]]
+    q_table: QTable,
+    energy: int = START_ENERGY,
 ) -> None:
 
-    """ Save each state's four Q-values on top of the maze. """
+    """ Save the four Q-values at each position for one remaining energy level. """
+
+    if not 1 <= energy <= START_ENERGY:
+        raise ValueError(f"energy must be between 1 and {START_ENERGY}")
 
     image = png_map(maze)
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
@@ -310,9 +319,9 @@ def save_q_table(
     regular_font = image_font(20)
     bold_font = image_font(21, bold=True)
 
-    for (row, column), values in q_table.items():
+    for (row, column, remaining_energy), values in q_table.items():
 
-        if maze[row][column] in "FT":
+        if remaining_energy != energy or maze[row][column] in "FT":
             continue
         x, y = column * TILE_SIZE, row * TILE_SIZE
         overlay_draw.rectangle((x, y, x + TILE_SIZE, y + TILE_SIZE), fill=(255, 255, 255, 190))
@@ -330,6 +339,11 @@ def save_q_table(
 
         overlay_draw.rectangle((x, y, x + TILE_SIZE - 1, y + TILE_SIZE - 1), outline="#888888", width=1)
 
+    overlay_draw.text(
+        (20, 20), f"Remaining energy: {energy}  (unvisited actions: 0)",
+        anchor="la", fill="white", stroke_width=3, stroke_fill="black",
+        font=image_font(30, bold=True),
+    )
     Image.alpha_composite(image, overlay).convert("RGB").save(Q_TABLE_IMAGE, "PNG")
 
 
@@ -638,17 +652,30 @@ class LearnerApp(tk.Tk):
         self.live_var = tk.BooleanVar(value=SHOW_TRAINING_ON_MAZE)
         self.status_var = tk.StringVar(value="準備完了")
         self.progress_var = tk.DoubleVar(value=0)
+        self.q_energy_var = tk.StringVar(value=str(START_ENERGY))
+        self.training_result: dict | None = None
 
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
         settings_tab = ttk.Frame(notebook, padding=18)
         notebook.add(settings_tab, text="訓練・接続設定")
+        q_table_tab = ttk.Frame(notebook)
+        energy_controls = ttk.Frame(q_table_tab, padding=(8, 6))
+        energy_controls.pack(fill="x")
+        ttk.Label(energy_controls, text="Q値を表示する残りエネルギー:").pack(side="left")
+        energy_picker = ttk.Combobox(
+            energy_controls, textvariable=self.q_energy_var, state="readonly",
+            values=tuple(str(energy) for energy in range(1, START_ENERGY + 1)), width=5,
+        )
+        energy_picker.pack(side="left", padx=(6, 0))
+        energy_picker.bind("<<ComboboxSelected>>", self._refresh_q_table)
         self.views = (
-            PngView(notebook, Q_TABLE_IMAGE),
+            PngView(q_table_tab, Q_TABLE_IMAGE),
             PngView(notebook, ROUTE_IMAGE),
             PngView(notebook, HEATMAP_IMAGE),
         )
-        notebook.add(self.views[0], text="Qテーブル")
+        self.views[0].pack(fill="both", expand=True)
+        notebook.add(q_table_tab, text="Qテーブル")
         notebook.add(self.views[1], text="経路")
         notebook.add(self.views[2], text="訪問ヒートマップ")
         self._build_settings(settings_tab)
@@ -656,6 +683,21 @@ class LearnerApp(tk.Tk):
             view.reload()
         self.after(100, self._process_events)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _refresh_q_table(self, _event=None):
+
+        """ Show the selected energy level from the last completed training run. """
+
+        if self.training_result is None:
+            return
+        try:
+            save_q_table(
+                self.training_result["maze"], self.training_result["q_table"],
+                int(self.q_energy_var.get()),
+            )
+            self.views[0].reload()
+        except Exception as error:
+            messagebox.showerror("画像作成エラー", str(error), parent=self)
 
     def _build_settings(self, parent):
 
@@ -815,13 +857,14 @@ class LearnerApp(tk.Tk):
                     self.status_var.set("PNG画像を作成中…")
                     self.update_idletasks()
                     try:
-                        save_q_table(first["maze"], first["q_table"])
+                        save_q_table(first["maze"], first["q_table"], int(self.q_energy_var.get()))
                         save_route(first["maze"], first["route"], first["result"])
                         save_heatmap(first["maze"], first["visits"])
                     except Exception as error:
                         self._set_training_state(False, "画像の作成に失敗しました")
                         messagebox.showerror("画像作成エラー", str(error), parent=self)
                         continue
+                    self.training_result = first
                     for view in self.views:
                         view.reload()
                     self.progress_var.set(100)
