@@ -28,7 +28,7 @@ Qラーニング側では、学習中の評価エピソードを迷路ゲーム�
 - Windows
 - Python 3.10以降
 - Tkinter（通常のWindows版Pythonに同梱）
-- Pillow 10.0以降
+- Pillow 12.3.0（`requirements.txt`で固定）
 
 > [!NOTE]
 > 迷路ゲームは効果音の再生にWindows標準の`winsound`を使用しているため、現在のソースコードはWindows向けです。
@@ -40,8 +40,8 @@ Qラーニング側では、学習中の評価エピソードを迷路ゲーム�
 次の2つをそれぞれ起動します。
 
 ```text
-迷路ゲーム\迷路ゲーム.exe
-Qラーニング\Qラーニング.exe
+src\迷路ゲーム\迷路ゲーム.exe
+src\Qラーニング\Qラーニング.exe
 ```
 
 学習の様子を迷路ゲームに表示する場合は、先に迷路ゲーム側のHTTPサーバーを設定してください。設定方法は「5. Qラーニングを実行する」を参照してください。
@@ -51,7 +51,7 @@ Qラーニング\Qラーニング.exe
 PowerShellでこのREADMEがあるディレクトリへ移動し、依存パッケージをインストールします。
 
 ```powershell
-python -m pip install -r .\Qラーニング\requirements.txt
+python -m pip install -r .\requirements.txt
 ```
 
 2つのPowerShellウィンドウを開き、それぞれ次のコマンドを実行します。
@@ -59,13 +59,13 @@ python -m pip install -r .\Qラーニング\requirements.txt
 迷路ゲーム：
 
 ```powershell
-python .\迷路ゲーム\maze.py
+python .\src\迷路ゲーム\maze.py
 ```
 
 Qラーニング：
 
 ```powershell
-python .\Qラーニング\learner.py
+python .\src\Qラーニング\learner.py
 ```
 
 ## 4. 迷路ゲームの遊び方
@@ -111,11 +111,11 @@ Qラーニングの「訓練・接続設定」タブで、訓練エピソード�
 Qテーブルは「行・列・残りエネルギー」の組み合わせごとに学習します。「Qテーブル」タブでは、上部の選択欄で表示する残りエネルギー（1～20）を切り替えられます。初期表示は20で、未学習の行動のQ値は0です。訪問ヒートマップは、すべてのエネルギー状態の学習中の訪問回数をマスごとに合計して表示します。
 
 > [!IMPORTANT]
-> 生成されたPNG画像は`Qラーニング`フォルダーに保存されますが、Qラーニングアプリを閉じると自動的に削除されます。残したい画像は、アプリを閉じる前に別の場所へコピーしてください。
+> Python版では、生成されたPNG画像は`src/Qラーニング`フォルダーに保存されます。実行ファイル版では、起動した`Qラーニング.exe`と同じフォルダーに保存されます。いずれもQラーニングアプリを閉じると自動的に削除されます。残したい画像は、アプリを閉じる前に別の場所へコピーしてください。
 
 ## 6. 学習の設定を変更する
 
-詳細な学習パラメータは[`Qラーニング/learner.py`](src/Qラーニング/learner.py)の先頭付近にあります。
+Python版の詳細な学習パラメータは[`src/Qラーニング/learner.py`](src/Qラーニング/learner.py)の先頭付近にあります。ソースコードで変更した値は、Python版を再起動すると反映されます。
 
 ```python
 LEARNING_RATE = 0.10
@@ -143,10 +143,12 @@ MOVE_DELAY = 0.08
 
 ## 7. マップの編集
 
-両方のアプリは、それぞれのフォルダー内にある`map.txt`を読み込みます。連携して使用するときは、次の2ファイルを同じ内容にしてください。
+Python版の両方のアプリは、それぞれのソースフォルダー内にある`map.txt`を読み込みます。連携して使用するときは、次の2ファイルを同じ内容にしてください。
 
-- `迷路ゲーム/map.txt`
-- `Qラーニング/map.txt`
+- [`src/迷路ゲーム/map.txt`](src/迷路ゲーム/map.txt)
+- [`src/Qラーニング/map.txt`](src/Qラーニング/map.txt)
+
+編集後は、迷路ゲームで`F5`または「マップ再読込」を押し、Qラーニングで学習を開始してください。実行ファイル版ではマップが同梱リソースとして読み込まれるため、上記のファイルを編集して試す場合はPython版を使ってください。
 
 マップは同じ文字数の行で構成された長方形にし、外周をすべて壁`#`で閉じます。プレイヤー`P`は必ず1つだけ配置してください。
 
@@ -185,33 +187,7 @@ MOVE_DELAY = 0.08
 
 移動方向には`up`、`down`、`left`、`right`を指定できます。移動APIを使うには「リモートプレイを許可」を有効にしてください。
 
-## 9. ディレクトリ構成
-
-```text
-src/
-├── README.md
-├── README_sample.md
-├── Qラーニング/
-│   ├── learner.py
-│   ├── map.txt
-│   ├── q_table.png
-│   ├── requirements.txt
-│   ├── Qラーニング.exe
-│   ├── route.png
-│   └── visitation_heatmap.png
-└── 迷路ゲーム/
-    ├── maze.py
-    ├── map.txt
-    ├── 迷路ゲーム.exe
-    └── Images/
-        ├── food.png
-        ├── none.png
-        ├── play.png
-        ├── trap.png
-        └── wall.png
-```
-
-## 10. トラブルシューティング
+## 9. トラブルシューティング
 
 ### Qラーニングから迷路ゲームへ接続できない
 
@@ -228,12 +204,46 @@ src/
 
 ### 画像ファイルが見つからない
 
-Python版のQラーニングは、迷路ゲーム側の`Images`フォルダーを参照します。上記のディレクトリ構成を保ったまま実行してください。
+Python版のQラーニングは、迷路ゲーム側の`src/迷路ゲーム/Images`フォルダーを参照します。末尾の「10. ディレクトリ構成」を保ったまま実行してください。
 
-## 11. 回帰テスト
+### `ModuleNotFoundError: No module named 'PIL'`が表示される
 
-リポジトリのルートで次を実行します。テストではHTTP表示をモックし、既定の報酬、罠の報酬-10、壁の報酬-1、および両方を変更した場合の到達結果を複数の乱数シードで確認します。表示の有無でQ値や訪問回数が変わらないこと、エネルギー別の学習、画像出力、評価中の停止も確認します。
+アプリを起動するPython環境にPillowをインストールしてください。リポジトリのルートで次を実行します。
 
 ```powershell
-python -B -m unittest discover -s tests -v
+python -m pip install -r .\requirements.txt
 ```
+
+## 10. ディレクトリ構成
+
+```text
+q_learning/
+├── README.md
+├── requirements.txt
+├── doc/
+│   ├── Qラーニング.exe
+│   ├── 迷路ゲーム.exe
+│   ├── しおり.pptx
+│   ├── スライド.pptx
+│   ├── プリント.pptx
+│   └── プリント版.pdf
+└── src/
+    ├── Qラーニング/
+    │   ├── learner.py
+    │   ├── map.txt
+    │   ├── icon.ico
+    │   └── Qラーニング.exe
+    └── 迷路ゲーム/
+        ├── maze.py
+        ├── map.txt
+        ├── icon.ico
+        ├── 迷路ゲーム.exe
+        └── Images/
+            ├── food.png
+            ├── none.png
+            ├── play.png
+            ├── trap.png
+            └── wall.png
+```
+
+`q_table.png`、`route.png`、`visitation_heatmap.png`は学習後に生成されるファイルです。`doc`フォルダーには授業用の資料と配布用の実行ファイルがあります。
